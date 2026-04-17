@@ -1,3 +1,5 @@
+
+```html
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -18,7 +20,7 @@
   <!-- Babel for parsing JSX in the browser -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase V8 Compat (Easier for standalone HTML scripts) -->
+  <!-- Firebase V8 Compat -->
   <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
@@ -28,6 +30,26 @@
 
   <script type="text/babel">
     const { useState, useEffect } = React;
+
+    // ==========================================
+    // LISTA DE CHOFERES POR DEFECTO
+    // ==========================================
+    const DEFAULT_DRIVERS = {
+      "1001": "Chofer 1 (Móvil 1)",
+      "1002": "Chofer 2 (Móvil 1)",
+      "1003": "Chofer 3 (Móvil 2)",
+      "1004": "Chofer 4 (Móvil 2)",
+      "1005": "Chofer 5 (Móvil 3)",
+      "1006": "Chofer 6 (Móvil 3)",
+      "1007": "Chofer 7 (Móvil 4)",
+      "1008": "Chofer 8 (Móvil 4)",
+      "1009": "Chofer 9 (Móvil 5)",
+      "1010": "Chofer 10 (Móvil 5)",
+      "1011": "Chofer 11 (Móvil 6)",
+      "1012": "Chofer 12 (Móvil 6)",
+      "1013": "Chofer 13 (Móvil 7)",
+      "1014": "Chofer 14 (Móvil 7)"
+    };
 
     // ==========================================
     // CONFIGURACIÓN DE FIREBASE DE JUAN
@@ -41,7 +63,6 @@
       appId: "1:991842323872:web:07169c34569755585468c5"
     };
 
-    // Validar si Firebase ha sido configurado
     const isFirebaseConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey.trim() !== "" && firebaseConfig.apiKey !== "TU_API_KEY";
     let auth, db;
 
@@ -59,9 +80,19 @@
     function App() {
       const [user, setUser] = useState(null);
       const [trips, setTrips] = useState([]);
+      const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVERS);
       const [activeTab, setActiveTab] = useState('cliente');
       const [toast, setToast] = useState(null);
       const [dbError, setDbError] = useState(false);
+      
+      const [loggedUser, setLoggedUser] = useState(() => {
+        try {
+          const saved = localStorage.getItem('luxe_auth_user');
+          return saved ? JSON.parse(saved) : null;
+        } catch (e) {
+          return null;
+        }
+      });
 
       useEffect(() => {
         if (!isFirebaseConfigured) {
@@ -69,13 +100,10 @@
           setDbError(true);
           return;
         }
-
-        // Autenticación anónima para leer/escribir en Firebase
         auth.signInAnonymously().catch((error) => {
           console.error("Error de Auth:", error);
           setDbError(true);
         });
-
         const unsubscribe = auth.onAuthStateChanged((currentUser) => {
           setUser(currentUser);
         });
@@ -84,9 +112,8 @@
 
       useEffect(() => {
         if (!isFirebaseConfigured || !user) return;
-
-        // Escuchar la colección 'viajes' en tiempo real
-        const unsubscribe = db.collection('viajes').onSnapshot((snapshot) => {
+        
+        const unsubTrips = db.collection('viajes').onSnapshot((snapshot) => {
           const tripsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setTrips(tripsData);
         }, (error) => {
@@ -94,10 +121,20 @@
           setDbError(true);
         });
 
-        return () => unsubscribe();
+        const unsubDrivers = db.collection('ajustes').doc('choferes').onSnapshot((doc) => {
+          if (doc.exists) {
+            setDriverSettings(doc.data());
+          } else {
+            db.collection('ajustes').doc('choferes').set(DEFAULT_DRIVERS);
+          }
+        });
+
+        return () => {
+          unsubTrips();
+          unsubDrivers();
+        };
       }, [user]);
 
-      // Funciones unificadas para manejar datos (Local o Firebase)
       const addTrip = async (trip) => {
         if (!isFirebaseConfigured || dbError) {
           setTrips(prev => [...prev, { id: Date.now().toString(), ...trip }]);
@@ -114,14 +151,38 @@
         await db.collection('viajes').doc(id).update(data);
       };
 
+      const updateDriverName = async (pin, newName) => {
+        if (!isFirebaseConfigured || dbError) {
+          setDriverSettings(prev => ({...prev, [pin]: newName}));
+          return;
+        }
+        await db.collection('ajustes').doc('choferes').update({
+          [pin]: newName
+        });
+      };
+
       const showToast = (message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 4000);
       };
 
+      const handleLogin = (userObj) => {
+        setLoggedUser(userObj);
+        localStorage.setItem('luxe_auth_user', JSON.stringify(userObj));
+        showToast(`Bienvenido, ${userObj.name}`);
+        if (userObj.role === 'admin') {
+          setActiveTab('crm');
+        }
+      };
+
+      const handleLogout = () => {
+        setLoggedUser(null);
+        localStorage.removeItem('luxe_auth_user');
+        setActiveTab('cliente');
+      };
+
       return (
         <div className="min-h-screen">
-          {/* Alerta de Toast */}
           {toast && (
             <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 border ${toast.type === 'error' ? 'bg-red-950 border-red-500 text-red-200' : 'bg-yellow-950 border-yellow-500 text-yellow-200'}`}>
               <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check' : 'fa-shield-halved'}`}></i>
@@ -129,15 +190,13 @@
             </div>
           )}
 
-          {/* Error de Base de Datos Config */}
           {dbError && (
             <div className="bg-yellow-900/50 text-yellow-200 p-3 text-center text-xs border-b border-yellow-800">
               <i className="fa-solid fa-triangle-exclamation mr-2"></i>
-              La base de datos aún no está lista. Asegúrate de habilitar Firestore y Auth Anónimo en tu consola.
+              La base de datos aún no está lista.
             </div>
           )}
 
-          {/* Cabecera */}
           <header className="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-40">
             <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-center gap-3">
               <i className="fa-solid fa-car text-yellow-500 text-2xl"></i>
@@ -146,20 +205,80 @@
               </h1>
             </div>
             
-            {/* Navegación */}
             <nav className="max-w-md mx-auto flex">
               <button onClick={() => setActiveTab('cliente')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'cliente' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Reservar</button>
               <button onClick={() => setActiveTab('despacho')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'despacho' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Despacho</button>
-              <button onClick={() => setActiveTab('crm')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'crm' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>CRM</button>
+              
+              {loggedUser?.role === 'admin' && (
+                <>
+                  <button onClick={() => setActiveTab('crm')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'crm' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>CRM</button>
+                  <button onClick={() => setActiveTab('choferes')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'choferes' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Choferes</button>
+                </>
+              )}
             </nav>
           </header>
 
-          {/* Contenido Principal */}
           <main className="max-w-md mx-auto p-4 pb-24">
             {activeTab === 'cliente' && <ClientModule showToast={showToast} user={user} addTrip={addTrip} />}
-            {activeTab === 'despacho' && <DispatchModule trips={trips} showToast={showToast} updateTrip={updateTrip} />}
-            {activeTab === 'crm' && <CRMModule trips={trips} />}
+            
+            {activeTab === 'despacho' && !loggedUser && (
+              <PinLogin onLogin={handleLogin} showToast={showToast} driverSettings={driverSettings} />
+            )}
+
+            {activeTab === 'despacho' && loggedUser && (
+              <DispatchModule trips={trips} showToast={showToast} updateTrip={updateTrip} loggedUser={loggedUser} onLogout={handleLogout} />
+            )}
+
+            {activeTab === 'crm' && loggedUser?.role === 'admin' && (
+              <CRMModule trips={trips} loggedUser={loggedUser} onLogout={handleLogout} />
+            )}
+
+            {activeTab === 'choferes' && loggedUser?.role === 'admin' && (
+              <ChoferesModule driverSettings={driverSettings} updateDriverName={updateDriverName} showToast={showToast} loggedUser={loggedUser} onLogout={handleLogout} />
+            )}
           </main>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MÓDULO DE LOGIN CON PIN
+    // ==========================================
+    function PinLogin({ onLogin, showToast, driverSettings }) {
+      const [pin, setPin] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (pin === "9999") {
+          onLogin({ pin: "9999", name: "Administrador General", role: "admin" });
+        } else if (driverSettings[pin]) {
+          onLogin({ pin: pin, name: driverSettings[pin], role: "driver" });
+        } else {
+          showToast("PIN incorrecto. Acceso denegado.", "error");
+          setPin('');
+        }
+      };
+
+      return (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-sm mx-auto mt-10">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-zinc-950 rounded-full flex items-center justify-center mx-auto mb-4 border border-zinc-800">
+              <i className="fa-solid fa-lock text-yellow-500 text-2xl"></i>
+            </div>
+            <h2 className="text-xl font-light text-white mb-2">Acceso a Operativa</h2>
+            <p className="text-sm text-zinc-400 mb-6">Ingrese su código PIN para acceder al panel.</p>
+            <form onSubmit={handleSubmit}>
+              <input 
+                type="password" maxLength="4" pattern="\d{4}" required
+                value={pin} onChange={(e) => setPin(e.target.value)}
+                className="w-full text-center tracking-[1em] text-2xl bg-zinc-950 border border-zinc-800 rounded-xl py-4 text-white focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all mb-4" 
+                placeholder="••••" 
+              />
+              <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold py-3 rounded-xl shadow-lg transition-all">
+                INGRESAR
+              </button>
+            </form>
+          </div>
         </div>
       );
     }
@@ -173,31 +292,19 @@
       });
       const [isSubmitting, setIsSubmitting] = useState(false);
 
-      const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-      };
+      const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
       const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!user) {
-          showToast("Conectando, intente en unos segundos...", "error");
-          return;
-        }
+        if (!user) { showToast("Conectando...", "error"); return; }
         if (isSubmitting) return;
         setIsSubmitting(true);
 
         try {
           const tripDateTime = new Date(`${formData.date}T${formData.time}`).getTime();
-          
           const newTrip = {
-            ...formData,
-            status: 'Pendiente',
-            driver: null,
-            datetime: tripDateTime,
-            createdAt: Date.now()
+            ...formData, status: 'Pendiente', driver: null, price: null, datetime: tripDateTime, createdAt: Date.now()
           };
-
           await addTrip(newTrip);
           showToast("Viaje programado exitosamente. Un chofer se comunicará pronto.");
           setFormData({ name: '', phone: '+598 ', date: '', time: '', origin: '', destination: '', type: 'Único' });
@@ -215,27 +322,24 @@
             <h2 className="text-xl font-light text-white mb-1">Solicitar Traslado</h2>
             <p className="text-sm text-zinc-400">Complete los datos para agendar su viaje.</p>
           </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="bg-zinc-900/50 p-5 rounded-2xl border border-zinc-800 space-y-4">
-              
               <div className="space-y-4 border-b border-zinc-800 pb-4">
                 <div>
                   <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Nombre Completo</label>
                   <div className="relative">
                     <i className="fa-solid fa-user absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"></i>
-                    <input required type="text" name="name" value={formData.name} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all" placeholder="Ej. Juan Pérez" />
+                    <input required type="text" name="name" value={formData.name} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none" placeholder="Ej. Juan Pérez" />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">WhatsApp</label>
                   <div className="relative">
                     <i className="fa-solid fa-phone absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"></i>
-                    <input required type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all" placeholder="+598 99 123 456" />
+                    <input required type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none" placeholder="+598 99 123 456" />
                   </div>
                 </div>
               </div>
-
               <div className="flex gap-3 border-b border-zinc-800 pb-4">
                 <div className="flex-1">
                   <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Fecha</label>
@@ -252,7 +356,6 @@
                   </div>
                 </div>
               </div>
-
               <div className="space-y-4 border-b border-zinc-800 pb-4">
                 <div>
                   <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Origen</label>
@@ -269,7 +372,6 @@
                   </div>
                 </div>
               </div>
-
               <div>
                 <label className="text-xs text-zinc-500 uppercase font-semibold mb-2 block">Tipo de Viaje</label>
                 <div className="flex gap-3">
@@ -282,11 +384,8 @@
                 </div>
               </div>
             </div>
-
             <button type="submit" disabled={isSubmitting} className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-zinc-950 font-bold py-4 rounded-xl shadow-lg shadow-yellow-500/20 transition-all flex justify-center items-center gap-2">
-              {isSubmitting ? (
-                <div className="w-5 h-5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin"></div>
-              ) : "PROGRAMAR VIAJE"}
+              {isSubmitting ? <div className="w-5 h-5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin"></div> : "PROGRAMAR VIAJE"}
             </button>
           </form>
         </div>
@@ -294,87 +393,104 @@
     }
 
     // ==========================================
-    // MÓDULO DESPACHO (CHOFERES - 7 Taxis)
+    // MÓDULO DESPACHO (CHOFERES Y ADMIN)
     // ==========================================
-    function DispatchModule({ trips, showToast, updateTrip }) {
-      // Estado inicial modificado para el selector de 7 móviles
-      const [driverName, setDriverName] = useState(() => localStorage.getItem('luxe_driver_name') || 'Móvil 1');
-      const [isEditingName, setIsEditingName] = useState(!localStorage.getItem('luxe_driver_name'));
+    function DispatchModule({ trips, showToast, updateTrip, loggedUser, onLogout }) {
+      const [completingTripId, setCompletingTripId] = useState(null);
+      const [tripPrice, setTripPrice] = useState('');
 
       const pendingTrips = trips
         .filter(t => t.status === 'Pendiente')
         .sort((a, b) => a.datetime - b.datetime);
 
-      const saveDriverName = () => {
-        if (driverName.trim().length > 0) {
-          localStorage.setItem('luxe_driver_name', driverName);
-          setIsEditingName(false);
-          showToast("Móvil guardado correctamente.");
-        } else {
-          showToast("Selecciona un móvil válido.", "error");
+      // Viajes que este chofer ha aceptado y aún no finaliza
+      const activeTrips = trips
+        .filter(t => t.status === 'Asignado' && t.driver === loggedUser.name)
+        .sort((a, b) => a.datetime - b.datetime);
+
+      const handleAssignTrip = async (trip) => {
+        try {
+          await updateTrip(trip.id, { status: 'Asignado', driver: loggedUser.name });
+          const cleanPhone = trip.phone.replace(/\D/g, ''); 
+          const message = `*LuxeFleet Service*\n\nHola ${trip.name}, su traslado ha sido programado con éxito para el ${trip.date} a las ${trip.time}.\n\n🚘 El vehículo asignado es: *${loggedUser.name}*.\n\nEl chofer le contactará por esta vía al llegar.`;
+          window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+          showToast("Viaje asignado y WhatsApp abierto.");
+        } catch (error) {
+          showToast("Error al asignar el viaje.", "error");
         }
       };
 
-      const handleAssignTrip = async (trip) => {
-        if (!driverName || isEditingName) {
-          showToast("Primero debes guardar tu número de móvil.", "error");
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+      const handleCompleteTrip = async (trip) => {
+        if (!tripPrice || isNaN(tripPrice) || Number(tripPrice) <= 0) {
+          showToast("Ingrese un monto válido.", "error");
           return;
         }
-
         try {
-          await updateTrip(trip.id, { 
-            status: 'Asignado', 
-            driver: driverName 
-          });
-
+          await updateTrip(trip.id, { status: 'Completado', price: Number(tripPrice) });
           const cleanPhone = trip.phone.replace(/\D/g, ''); 
-          const message = `*LuxeFleet Service*\n\nHola ${trip.name}, su traslado ha sido programado con éxito para el ${trip.date} a las ${trip.time}.\n\n🚘 El vehículo asignado es el: *${driverName}*.\n\nEl chofer le contactará por esta vía al llegar.`;
-          const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+          const message = `*LuxeFleet Service*\n\nHola ${trip.name}, su viaje ha finalizado.\n\n💰 *Costo Total: $${tripPrice}*\n\nGracias por elegir nuestro servicio. ¡Lo esperamos pronto!`;
+          window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
           
-          window.open(waLink, '_blank');
-          showToast("Viaje asignado. Abriendo WhatsApp...");
+          setCompletingTripId(null);
+          setTripPrice('');
+          showToast("Viaje finalizado y facturado.");
         } catch (error) {
-          console.error("Error:", error);
-          showToast("Error al asignar el viaje.", "error");
+          showToast("Error al finalizar el viaje.", "error");
         }
       };
 
       return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-zinc-900 border border-yellow-600/30 p-4 rounded-xl mb-6 shadow-lg shadow-yellow-900/5">
-            <div className="flex items-center gap-2 mb-2">
-              <i className="fa-solid fa-shield-halved text-yellow-500"></i>
-              <h3 className="text-white font-medium">Identificación de Móvil</h3>
+          <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-3 rounded-xl mb-6 shadow-lg">
+            <div className="flex items-center gap-2">
+              <i className={`fa-solid ${loggedUser.role === 'admin' ? 'fa-user-shield' : 'fa-circle-user'} text-yellow-500 text-lg`}></i>
+              <span className="text-zinc-300 text-sm">Sesión: <strong className="text-white">{loggedUser.name}</strong></span>
             </div>
-            {isEditingName ? (
-              <div className="flex gap-2">
-                {/* Menú desplegable para los 7 taxis */}
-                <select 
-                  value={driverName} 
-                  onChange={(e) => setDriverName(e.target.value)} 
-                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:border-yellow-500 outline-none cursor-pointer appearance-none"
-                >
-                  <option value="Móvil 1">Móvil 1</option>
-                  <option value="Móvil 2">Móvil 2</option>
-                  <option value="Móvil 3">Móvil 3</option>
-                  <option value="Móvil 4">Móvil 4</option>
-                  <option value="Móvil 5">Móvil 5</option>
-                  <option value="Móvil 6">Móvil 6</option>
-                  <option value="Móvil 7">Móvil 7</option>
-                </select>
-                <button onClick={saveDriverName} className="bg-yellow-500 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm hover:bg-yellow-400 transition-colors">Guardar</button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between bg-zinc-950 p-3 rounded-lg border border-zinc-800">
-                <span className="text-zinc-300 text-sm">Operando como: <strong className="text-white">{driverName}</strong></span>
-                <button onClick={() => setIsEditingName(true)} className="text-yellow-500 text-xs font-semibold uppercase hover:text-yellow-400">Cambiar</button>
-              </div>
-            )}
+            <button onClick={onLogout} className="text-zinc-500 text-xs font-semibold uppercase hover:text-red-400 transition-colors">Salir</button>
           </div>
 
+          {/* MIS VIAJES ACTIVOS (Los que el chofer ya tomó) */}
+          {activeTrips.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-lg font-light text-yellow-500 mb-3 flex items-center gap-2">
+                <i className="fa-solid fa-road"></i> Mis Viajes Activos
+              </h2>
+              <div className="space-y-4">
+                {activeTrips.map(trip => (
+                  <div key={trip.id} className="bg-yellow-900/10 rounded-2xl border border-yellow-600/30 p-4 shadow-xl">
+                    <div className="flex justify-between items-start mb-3 border-b border-zinc-800/50 pb-3">
+                      <div>
+                        <h3 className="font-semibold text-lg text-white">{trip.name}</h3>
+                        <a href={`tel:${trip.phone}`} className="text-sm text-yellow-500 flex items-center gap-1 mt-1 hover:underline"><i className="fa-solid fa-phone text-xs"></i> {trip.phone}</a>
+                      </div>
+                      <div className="text-right">
+                        <div className="bg-zinc-800 text-white px-2 py-1 rounded text-sm font-mono font-bold inline-flex items-center gap-1"><i className="fa-solid fa-clock text-yellow-500"></i> {trip.time}</div>
+                      </div>
+                    </div>
+                    
+                    {completingTripId === trip.id ? (
+                      <div className="mt-4 pt-3 border-t border-zinc-800 animate-in fade-in">
+                        <label className="text-xs text-zinc-400 uppercase font-bold mb-2 block">Monto a Cobrar ($)</label>
+                        <div className="flex gap-2">
+                          <input type="number" placeholder="Ej. 450" value={tripPrice} onChange={e => setTripPrice(e.target.value)} className="flex-1 bg-zinc-950 border border-yellow-600/50 rounded-lg px-3 py-2 text-white outline-none focus:border-yellow-500 text-lg" />
+                          <button onClick={() => handleCompleteTrip(trip)} className="bg-yellow-500 text-zinc-950 font-bold px-4 py-2 rounded-lg hover:bg-yellow-400">Confirmar</button>
+                          <button onClick={() => { setCompletingTripId(null); setTripPrice(''); }} className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-700">Cancelar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setCompletingTripId(trip.id)} className="w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-bold py-3 rounded-xl shadow-lg transition-all flex justify-center items-center gap-2 mt-2">
+                        <i className="fa-solid fa-check-double"></i> FINALIZAR Y COBRAR
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* VIAJES PENDIENTES */}
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-light text-white">Viajes Pendientes</h2>
+            <h2 className="text-xl font-light text-white">Nuevas Solicitudes</h2>
             <span className="bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold border border-yellow-500/30">{pendingTrips.length} en espera</span>
           </div>
 
@@ -382,7 +498,6 @@
             <div className="text-center py-12 bg-zinc-900/30 rounded-2xl border border-zinc-800 border-dashed">
               <i className="fa-solid fa-car text-zinc-700 text-4xl mb-3"></i>
               <p className="text-zinc-500 font-medium">No hay viajes pendientes.</p>
-              <p className="text-zinc-600 text-sm mt-1">La flota está al día.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -391,31 +506,14 @@
                   <div className="flex justify-between items-start mb-3 border-b border-zinc-800/50 pb-3">
                     <div>
                       <h3 className="font-semibold text-lg text-white">{trip.name}</h3>
-                      <a href={`tel:${trip.phone}`} className="text-sm text-yellow-500 flex items-center gap-1 mt-1 hover:underline">
-                        <i className="fa-solid fa-phone text-xs"></i> {trip.phone}
-                      </a>
+                      <p className="text-xs text-zinc-500 mt-1">Origen: <span className="text-zinc-300">{trip.origin}</span></p>
+                      <p className="text-xs text-zinc-500 mt-0.5">Destino: <span className="text-zinc-300">{trip.destination}</span></p>
                     </div>
                     <div className="text-right">
                       <div className="bg-zinc-800 text-white px-2 py-1 rounded text-sm font-mono font-bold inline-flex items-center gap-1">
                         <i className="fa-solid fa-clock text-yellow-500"></i> {trip.time}
                       </div>
                       <div className="text-xs text-zinc-500 mt-1">{trip.date}</div>
-                    </div>
-                  </div>
-                  <div className="space-y-3 mb-4">
-                    <div className="flex gap-3 items-start">
-                      <i className="fa-solid fa-location-arrow text-zinc-500 mt-1"></i>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-zinc-600 block">Recogida</span>
-                        <span className="text-zinc-300 text-sm leading-tight">{trip.origin}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-3 items-start">
-                      <i className="fa-solid fa-map-pin text-yellow-600 mt-1"></i>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-zinc-600 block">Destino</span>
-                        <span className="text-zinc-300 text-sm leading-tight">{trip.destination}</span>
-                      </div>
                     </div>
                   </div>
                   <button onClick={() => handleAssignTrip(trip)} className="w-full bg-white text-zinc-950 font-bold py-3 rounded-xl shadow-lg hover:bg-zinc-200 transition-all flex justify-center items-center gap-2 mt-2">
@@ -430,46 +528,67 @@
     }
 
     // ==========================================
-    // MÓDULO CRM (CLIENTES FRECUENTES)
+    // MÓDULO CRM (ADMIN) - CON CONTABILIDAD
     // ==========================================
-    function CRMModule({ trips }) {
-      const clientStats = trips.reduce((acc, trip) => {
+    function CRMModule({ trips, loggedUser, onLogout }) {
+      const [crmView, setCrmView] = useState('clientes'); // 'clientes' o 'rendimiento'
+
+      // Filtro viajes completados para sacar estadísticas
+      const completedTrips = trips.filter(t => t.status === 'Completado');
+      const totalRevenue = completedTrips.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+
+      // Estadísticas por Cliente
+      const clientStats = completedTrips.reduce((acc, trip) => {
         const key = trip.phone;
-        if (!acc[key]) {
-          acc[key] = { name: trip.name, phone: trip.phone, totalTrips: 0, lastTrip: trip.datetime };
-        }
+        if (!acc[key]) acc[key] = { name: trip.name, phone: trip.phone, totalTrips: 0 };
         acc[key].totalTrips += 1;
-        if (trip.datetime > acc[key].lastTrip) {
-          acc[key].lastTrip = trip.datetime;
-          acc[key].name = trip.name;
-        }
+        acc[key].name = trip.name;
         return acc;
       }, {});
-
       const sortedClients = Object.values(clientStats).sort((a, b) => b.totalTrips - a.totalTrips);
-      const totalCompleted = trips.filter(t => t.status === 'Asignado' || t.status === 'Completado').length;
+
+      // Estadísticas por Chofer
+      const driverStats = completedTrips.reduce((acc, trip) => {
+        const driver = trip.driver || 'Desconocido';
+        if (!acc[driver]) acc[driver] = { driverName: driver, count: 0, revenue: 0 };
+        acc[driver].count += 1;
+        acc[driver].revenue += (Number(trip.price) || 0);
+        return acc;
+      }, {});
+      const sortedDrivers = Object.values(driverStats).sort((a, b) => b.revenue - a.revenue);
 
       return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-3 rounded-xl mb-4 shadow-lg">
+            <div className="flex items-center gap-2">
+              <i className="fa-solid fa-user-shield text-yellow-500 text-lg"></i>
+              <span className="text-zinc-300 text-sm">Sesión: <strong className="text-white">{loggedUser.name}</strong></span>
+            </div>
+            <button onClick={onLogout} className="text-zinc-500 text-xs font-semibold uppercase hover:text-red-400 transition-colors">Salir</button>
+          </div>
+
+          {/* Tarjetas de Resumen Financiero */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col items-center justify-center">
-              <span className="text-3xl font-light text-white">{sortedClients.length}</span>
-              <span className="text-xs text-zinc-500 uppercase tracking-wider font-bold mt-1">Clientes</span>
+              <span className="text-2xl font-light text-white">{completedTrips.length}</span>
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mt-1 text-center">Viajes Pagos</span>
             </div>
             <div className="bg-zinc-900 border border-yellow-900/50 rounded-2xl p-4 flex flex-col items-center justify-center">
-              <span className="text-3xl font-light text-yellow-500">{totalCompleted}</span>
-              <span className="text-xs text-zinc-500 uppercase tracking-wider font-bold mt-1">Atendidos</span>
+              <span className="text-2xl font-bold text-yellow-500">${totalRevenue.toLocaleString('es-UY')}</span>
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mt-1 text-center">Facturación Total</span>
             </div>
           </div>
 
-          <h2 className="text-xl font-light text-white mb-4 flex items-center gap-2">
-            <i className="fa-solid fa-list text-yellow-500"></i> Directorio
-          </h2>
+          {/* Sub-Navegación del CRM */}
+          <div className="flex border-b border-zinc-800 mb-4">
+            <button onClick={() => setCrmView('clientes')} className={`flex-1 py-2 text-sm font-semibold transition-colors ${crmView === 'clientes' ? 'text-yellow-500 border-b-2 border-yellow-500' : 'text-zinc-500'}`}>Clientes</button>
+            <button onClick={() => setCrmView('rendimiento')} className={`flex-1 py-2 text-sm font-semibold transition-colors ${crmView === 'rendimiento' ? 'text-yellow-500 border-b-2 border-yellow-500' : 'text-zinc-500'}`}>Rendimiento</button>
+          </div>
 
-          {sortedClients.length === 0 ? (
-            <div className="text-center py-8 text-zinc-500">No hay datos registrados.</div>
-          ) : (
-            <div className="space-y-3">
+          {/* Vista: Directorio de Clientes */}
+          {crmView === 'clientes' && (
+            <div className="space-y-3 animate-in fade-in">
+              {sortedClients.length === 0 ? <p className="text-center py-8 text-zinc-500">No hay viajes facturados aún.</p> : null}
               {sortedClients.map((client, index) => (
                 <div key={index} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
                   <div>
@@ -487,13 +606,87 @@
               ))}
             </div>
           )}
+
+          {/* Vista: Rendimiento por Chofer */}
+          {crmView === 'rendimiento' && (
+            <div className="space-y-3 animate-in fade-in">
+              {sortedDrivers.length === 0 ? <p className="text-center py-8 text-zinc-500">No hay facturación registrada.</p> : null}
+              {sortedDrivers.map((driver, index) => (
+                <div key={index} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium text-white text-sm">{driver.driverName}</h3>
+                    <p className="text-xs text-zinc-400 mt-1">{driver.count} viajes completados</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xl font-bold text-yellow-500">${driver.revenue.toLocaleString('es-UY')}</div>
+                    <div className="text-[10px] uppercase text-zinc-500 font-bold">Generado</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       );
     }
 
-    // Renderizar la app en el DOM
+    // ==========================================
+    // MÓDULO CHOFERES (ADMIN - EDITAR NOMBRES)
+    // ==========================================
+    function ChoferesModule({ driverSettings, updateDriverName, showToast, loggedUser, onLogout }) {
+      const [editingPin, setEditingPin] = useState(null);
+      const [editName, setEditName] = useState("");
+
+      const handleEdit = (pin, currentName) => { setEditingPin(pin); setEditName(currentName); };
+      const handleSave = async (pin) => {
+        if (editName.trim() === "") { showToast("El nombre no puede estar vacío", "error"); return; }
+        await updateDriverName(pin, editName);
+        setEditingPin(null);
+        showToast("Nombre actualizado correctamente");
+      };
+
+      return (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-3 rounded-xl mb-6 shadow-lg">
+            <div className="flex items-center gap-2">
+              <i className="fa-solid fa-user-shield text-yellow-500 text-lg"></i>
+              <span className="text-zinc-300 text-sm">Sesión: <strong className="text-white">{loggedUser.name}</strong></span>
+            </div>
+            <button onClick={onLogout} className="text-zinc-500 text-xs font-semibold uppercase hover:text-red-400 transition-colors">Salir</button>
+          </div>
+          <div className="mb-4">
+            <h2 className="text-xl font-light text-white mb-1 flex items-center gap-2"><i className="fa-solid fa-id-card text-yellow-500"></i> Gestión de Flota</h2>
+            <p className="text-sm text-zinc-400">Edite los nombres asociados a los 14 PINs operativos.</p>
+          </div>
+          <div className="space-y-3">
+            {Object.keys(driverSettings).sort().map(pin => (
+              <div key={pin} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                {editingPin === pin ? (
+                  <div className="flex-1 flex gap-2 animate-in fade-in">
+                    <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:border-yellow-500 outline-none" />
+                    <button onClick={() => handleSave(pin)} className="bg-yellow-500 text-zinc-950 px-3 py-2 rounded-lg"><i className="fa-solid fa-check"></i></button>
+                    <button onClick={() => setEditingPin(null)} className="bg-zinc-800 text-white px-3 py-2 rounded-lg"><i className="fa-solid fa-xmark"></i></button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <span className="bg-zinc-800 text-yellow-500 font-mono text-xs font-bold px-2 py-1 rounded mr-3">PIN {pin}</span>
+                      <span className="text-white text-sm font-medium">{driverSettings[pin]}</span>
+                    </div>
+                    <button onClick={() => handleEdit(pin, driverSettings[pin])} className="text-zinc-500 hover:text-yellow-500 p-2"><i className="fa-solid fa-pen"></i></button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
 </body>
 </html>
+
+
+```
