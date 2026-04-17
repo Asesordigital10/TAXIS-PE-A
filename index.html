@@ -1,515 +1,499 @@
-import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { MapPin, Clock, Calendar, User, Phone, Navigation, CheckCircle, CarFront, List, ShieldCheck } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LuxeFleet - Logística Black Car</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome for Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-// --- Firebase Initialization ---
-let app, auth, db, appId;
-try {
-  const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-  appId = typeof __app_id !== 'undefined' ? __app_id : 'black-car-logistics-app';
-} catch (error) {
-  console.error("Error initializing Firebase:", error);
-}
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel for parsing JSX in the browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [trips, setTrips] = useState([]);
-  const [activeTab, setActiveTab] = useState('cliente'); // 'cliente', 'despacho', 'crm'
-  const [toast, setToast] = useState(null);
+  <!-- Firebase V8 Compat (Easier for standalone HTML scripts) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans selection:bg-yellow-600/30">
+  <div id="root"></div>
 
-  // Auth Effect
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth Error:", err);
-      }
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ==========================================
+    // CONFIGURACIÓN DE FIREBASE DE JUAN
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyDQHsb6SF13rhYV5zY0bcfScYzNyJvJzYI",
+      authDomain: "fir-taxis-40b72.firebaseapp.com",
+      projectId: "fir-taxis-40b72",
+      storageBucket: "fir-taxis-40b72.firebasestorage.app",
+      messagingSenderId: "991842323872",
+      appId: "1:991842323872:web:07169c34569755585468c5"
     };
-    initAuth();
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-    return () => unsubscribe();
-  }, []);
+    // Validar si Firebase ha sido configurado
+    const isFirebaseConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey.trim() !== "" && firebaseConfig.apiKey !== "TU_API_KEY";
+    let auth, db;
 
-  // Data Fetching Effect (Rule: Fetch all, filter/sort in memory)
-  useEffect(() => {
-    if (!user) return;
+    if (isFirebaseConfigured) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+      auth = firebase.auth();
+      db = firebase.firestore();
+    }
 
-    const tripsRef = collection(db, 'artifacts', appId, 'public', 'data', 'taxi_trips');
-    
-    const unsubscribe = onSnapshot(tripsRef, (snapshot) => {
-      const tripsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setTrips(tripsData);
-    }, (error) => {
-      console.error("Error fetching trips:", error);
-      showToast("Error de conexión al obtener viajes.", "error");
-    });
+    // ==========================================
+    // APLICACIÓN PRINCIPAL
+    // ==========================================
+    function App() {
+      const [user, setUser] = useState(null);
+      const [trips, setTrips] = useState([]);
+      const [activeTab, setActiveTab] = useState('cliente');
+      const [toast, setToast] = useState(null);
+      const [dbError, setDbError] = useState(false);
 
-    return () => unsubscribe();
-  }, [user]);
+      useEffect(() => {
+        if (!isFirebaseConfigured) {
+          setUser({ uid: 'local-demo-user' });
+          setDbError(true);
+          return;
+        }
 
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
+        // Autenticación anónima para leer/escribir en Firebase
+        auth.signInAnonymously().catch((error) => {
+          console.error("Error de Auth:", error);
+          setDbError(true);
+        });
 
-  return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-yellow-600/30">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 border ${toast.type === 'error' ? 'bg-red-950 border-red-500 text-red-200' : 'bg-yellow-950 border-yellow-500 text-yellow-200'}`}>
-          {toast.type === 'success' ? <CheckCircle size={18} /> : <ShieldCheck size={18} />}
-          <span className="font-medium text-sm">{toast.message}</span>
-        </div>
-      )}
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+          setUser(currentUser);
+        });
+        return () => unsubscribe();
+      }, []);
 
-      {/* Header */}
-      <header className="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-40">
-        <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-center gap-3">
-          <CarFront className="text-yellow-500" size={28} />
-          <h1 className="text-2xl font-light tracking-widest text-white uppercase">
-            Luxe<span className="text-yellow-500 font-bold">Fleet</span>
-          </h1>
-        </div>
-        
-        {/* Navigation Tabs */}
-        <nav className="max-w-md mx-auto flex">
-          <button 
-            onClick={() => setActiveTab('cliente')}
-            className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'cliente' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            Reservar
-          </button>
-          <button 
-            onClick={() => setActiveTab('despacho')}
-            className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'despacho' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            Despacho
-          </button>
-          <button 
-            onClick={() => setActiveTab('crm')}
-            className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'crm' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            CRM
-          </button>
-        </nav>
-      </header>
+      useEffect(() => {
+        if (!isFirebaseConfigured || !user) return;
 
-      {/* Main Content Area (Mobile First Max Width) */}
-      <main className="max-w-md mx-auto p-4 pb-24">
-        {!user ? (
-          <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
-            <div className="w-8 h-8 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p>Conectando con la base de datos...</p>
-          </div>
-        ) : (
-          <>
-            {activeTab === 'cliente' && <ClientModule showToast={showToast} />}
-            {activeTab === 'despacho' && <DispatchModule trips={trips} showToast={showToast} />}
-            {activeTab === 'crm' && <CRMModule trips={trips} />}
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
+        // Escuchar la colección 'viajes' en tiempo real
+        const unsubscribe = db.collection('viajes').onSnapshot((snapshot) => {
+          const tripsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setTrips(tripsData);
+        }, (error) => {
+          console.error("Error fetching trips:", error);
+          setDbError(true);
+        });
 
-// ==========================================
-// MÓDULO CLIENTE (RESERVA)
-// ==========================================
-function ClientModule({ showToast }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    phone: '+598 ',
-    date: '',
-    time: '',
-    origin: '',
-    destination: '',
-    type: 'Único'
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+        return () => unsubscribe();
+      }, [user]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-
-    try {
-      // Calculate datetime for sorting
-      const tripDateTime = new Date(`${formData.date}T${formData.time}`).getTime();
-      
-      const newTrip = {
-        ...formData,
-        status: 'Pendiente',
-        driver: null,
-        datetime: tripDateTime,
-        createdAt: Date.now()
+      // Funciones unificadas para manejar datos (Local o Firebase)
+      const addTrip = async (trip) => {
+        if (!isFirebaseConfigured || dbError) {
+          setTrips(prev => [...prev, { id: Date.now().toString(), ...trip }]);
+          return;
+        }
+        await db.collection('viajes').add(trip);
       };
 
-      const newDocRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'taxi_trips'));
-      await setDoc(newDocRef, newTrip);
-      
-      showToast("Viaje programado exitosamente. Un chofer se comunicará pronto.");
-      
-      // Reset form
-      setFormData({
+      const updateTrip = async (id, data) => {
+        if (!isFirebaseConfigured || dbError) {
+          setTrips(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
+          return;
+        }
+        await db.collection('viajes').doc(id).update(data);
+      };
+
+      const showToast = (message, type = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 4000);
+      };
+
+      return (
+        <div className="min-h-screen">
+          {/* Alerta de Toast */}
+          {toast && (
+            <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 border ${toast.type === 'error' ? 'bg-red-950 border-red-500 text-red-200' : 'bg-yellow-950 border-yellow-500 text-yellow-200'}`}>
+              <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check' : 'fa-shield-halved'}`}></i>
+              <span className="font-medium text-sm">{toast.message}</span>
+            </div>
+          )}
+
+          {/* Error de Base de Datos Config */}
+          {dbError && (
+            <div className="bg-yellow-900/50 text-yellow-200 p-3 text-center text-xs border-b border-yellow-800">
+              <i className="fa-solid fa-triangle-exclamation mr-2"></i>
+              La base de datos aún no está lista. Asegúrate de habilitar Firestore y Auth Anónimo en tu consola.
+            </div>
+          )}
+
+          {/* Cabecera */}
+          <header className="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-40">
+            <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-center gap-3">
+              <i className="fa-solid fa-car text-yellow-500 text-2xl"></i>
+              <h1 className="text-2xl font-light tracking-widest text-white uppercase">
+                Luxe<span className="text-yellow-500 font-bold">Fleet</span>
+              </h1>
+            </div>
+            
+            {/* Navegación */}
+            <nav className="max-w-md mx-auto flex">
+              <button onClick={() => setActiveTab('cliente')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'cliente' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Reservar</button>
+              <button onClick={() => setActiveTab('despacho')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'despacho' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Despacho</button>
+              <button onClick={() => setActiveTab('crm')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'crm' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>CRM</button>
+            </nav>
+          </header>
+
+          {/* Contenido Principal */}
+          <main className="max-w-md mx-auto p-4 pb-24">
+            {activeTab === 'cliente' && <ClientModule showToast={showToast} user={user} addTrip={addTrip} />}
+            {activeTab === 'despacho' && <DispatchModule trips={trips} showToast={showToast} updateTrip={updateTrip} />}
+            {activeTab === 'crm' && <CRMModule trips={trips} />}
+          </main>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MÓDULO CLIENTE (RESERVA)
+    // ==========================================
+    function ClientModule({ showToast, user, addTrip }) {
+      const [formData, setFormData] = useState({
         name: '', phone: '+598 ', date: '', time: '', origin: '', destination: '', type: 'Único'
       });
-    } catch (error) {
-      console.error("Error creating trip:", error);
-      showToast("Error al programar el viaje.", "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+      const [isSubmitting, setIsSubmitting] = useState(false);
 
-  return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="mb-6">
-        <h2 className="text-xl font-light text-white mb-1">Solicitar Traslado</h2>
-        <p className="text-sm text-zinc-400">Complete los datos para agendar su viaje.</p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-zinc-900/50 p-5 rounded-2xl border border-zinc-800 space-y-4">
-          
-          {/* Contact Info */}
-          <div className="space-y-4 border-b border-zinc-800 pb-4">
-            <div>
-              <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Nombre Completo</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input required type="text" name="name" value={formData.name} onChange={handleChange}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all" 
-                  placeholder="Ej. Juan Pérez" />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">WhatsApp (Con código de país)</label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input required type="tel" name="phone" value={formData.phone} onChange={handleChange}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all" 
-                  placeholder="+598 99 123 456" />
-              </div>
-            </div>
-          </div>
-
-          {/* Date & Time */}
-          <div className="flex gap-3 border-b border-zinc-800 pb-4">
-            <div className="flex-1">
-              <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Fecha</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input required type="date" name="date" value={formData.date} onChange={handleChange}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none block [&::-webkit-calendar-picker-indicator]:invert" />
-              </div>
-            </div>
-            <div className="flex-1">
-              <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Hora</label>
-              <div className="relative">
-                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input required type="time" name="time" value={formData.time} onChange={handleChange}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none block [&::-webkit-calendar-picker-indicator]:invert" />
-              </div>
-            </div>
-          </div>
-
-          {/* Locations */}
-          <div className="space-y-4 border-b border-zinc-800 pb-4">
-            <div>
-              <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Origen</label>
-              <div className="relative">
-                <Navigation className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input required type="text" name="origin" value={formData.origin} onChange={handleChange}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none" 
-                  placeholder="Dirección de recogida" />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Destino</label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-yellow-600" size={18} />
-                <input required type="text" name="destination" value={formData.destination} onChange={handleChange}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none" 
-                  placeholder="Dirección de destino" />
-              </div>
-            </div>
-          </div>
-
-          {/* Type of Trip */}
-          <div>
-            <label className="text-xs text-zinc-500 uppercase font-semibold mb-2 block">Tipo de Viaje</label>
-            <div className="flex gap-3">
-              <label className={`flex-1 text-center py-3 rounded-xl border cursor-pointer transition-all ${formData.type === 'Único' ? 'bg-yellow-500/10 border-yellow-500 text-yellow-500' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}>
-                <input type="radio" name="type" value="Único" checked={formData.type === 'Único'} onChange={handleChange} className="hidden" />
-                Ocasional
-              </label>
-              <label className={`flex-1 text-center py-3 rounded-xl border cursor-pointer transition-all ${formData.type === 'Frecuente' ? 'bg-yellow-500/10 border-yellow-500 text-yellow-500' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}>
-                <input type="radio" name="type" value="Frecuente" checked={formData.type === 'Frecuente'} onChange={handleChange} className="hidden" />
-                Frecuente
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <button 
-          type="submit" 
-          disabled={isSubmitting}
-          className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-zinc-950 font-bold py-4 rounded-xl shadow-lg shadow-yellow-500/20 transition-all flex justify-center items-center gap-2"
-        >
-          {isSubmitting ? (
-            <div className="w-5 h-5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin"></div>
-          ) : (
-            <>PROGRAMAR VIAJE</>
-          )}
-        </button>
-      </form>
-    </div>
-  );
-}
-
-// ==========================================
-// MÓDULO DESPACHO (CHOFERES)
-// ==========================================
-function DispatchModule({ trips, showToast }) {
-  const [driverName, setDriverName] = useState(() => localStorage.getItem('luxe_driver_name') || '');
-  const [isEditingName, setIsEditingName] = useState(!driverName);
-
-  // Filter and sort manually in memory to obey Rule 2
-  const pendingTrips = trips
-    .filter(t => t.status === 'Pendiente')
-    .sort((a, b) => a.datetime - b.datetime);
-
-  const saveDriverName = () => {
-    if (driverName.trim().length > 0) {
-      localStorage.setItem('luxe_driver_name', driverName);
-      setIsEditingName(false);
-      showToast("Nombre de chofer guardado.");
-    } else {
-      showToast("Ingresa un nombre válido.", "error");
-    }
-  };
-
-  const handleAssignTrip = async (trip) => {
-    if (!driverName || isEditingName) {
-      showToast("Primero debes guardar tu nombre de chofer arriba.", "error");
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    try {
-      const tripRef = doc(db, 'artifacts', appId, 'public', 'data', 'taxi_trips', trip.id);
-      
-      // Update DB
-      await updateDoc(tripRef, { 
-        status: 'Asignado', 
-        driver: driverName 
-      });
-
-      // Prepare WhatsApp Link
-      const phoneNumberRaw = trip.phone;
-      const cleanPhone = phoneNumberRaw.replace(/\D/g, ''); // Removes all non-numeric characters (e.g. +598 99 -> 59899)
-      const message = `*LuxeFleet Service*\n\nHola ${trip.name}, su traslado ha sido programado con éxito para el ${trip.date} a las ${trip.time}.\n\n🚘 El móvil asignado es: *${driverName}*.\n\nEl chofer le contactará por esta vía al llegar.`;
-      const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-      
-      // Open WA in new tab
-      window.open(waLink, '_blank');
-      showToast("Viaje asignado. Abriendo WhatsApp...");
-
-    } catch (error) {
-      console.error("Error assigning trip:", error);
-      showToast("Error al asignar el viaje.", "error");
-    }
-  };
-
-  return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* Driver Identity Banner */}
-      <div className="bg-zinc-900 border border-yellow-600/30 p-4 rounded-xl mb-6 shadow-lg shadow-yellow-900/5">
-        <div className="flex items-center gap-2 mb-2">
-          <ShieldCheck className="text-yellow-500" size={20} />
-          <h3 className="text-white font-medium">Identificación de Chofer</h3>
-        </div>
-        {isEditingName ? (
-          <div className="flex gap-2">
-            <input 
-              type="text" 
-              value={driverName} 
-              onChange={(e) => setDriverName(e.target.value)}
-              placeholder="Tu Nombre (Ej. Carlos R.)"
-              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:border-yellow-500 outline-none"
-            />
-            <button 
-              onClick={saveDriverName}
-              className="bg-yellow-500 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm hover:bg-yellow-400 transition-colors"
-            >
-              Guardar
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between bg-zinc-950 p-3 rounded-lg border border-zinc-800">
-            <span className="text-zinc-300 text-sm">Operando como: <strong className="text-white">{driverName}</strong></span>
-            <button onClick={() => setIsEditingName(true)} className="text-yellow-500 text-xs font-semibold uppercase hover:text-yellow-400">
-              Cambiar
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-light text-white">Viajes Pendientes</h2>
-        <span className="bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold border border-yellow-500/30">
-          {pendingTrips.length} en espera
-        </span>
-      </div>
-
-      {pendingTrips.length === 0 ? (
-        <div className="text-center py-12 bg-zinc-900/30 rounded-2xl border border-zinc-800 border-dashed">
-          <CarFront className="text-zinc-700 mx-auto mb-3" size={40} />
-          <p className="text-zinc-500 font-medium">No hay viajes pendientes.</p>
-          <p className="text-zinc-600 text-sm mt-1">La flota está al día.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {pendingTrips.map(trip => (
-            <div key={trip.id} className="bg-zinc-900 rounded-2xl border-l-4 border-l-yellow-500 border-t border-b border-r border-zinc-800 p-4 shadow-xl">
-              
-              <div className="flex justify-between items-start mb-3 border-b border-zinc-800/50 pb-3">
-                <div>
-                  <h3 className="font-semibold text-lg text-white">{trip.name}</h3>
-                  <a href={`tel:${trip.phone}`} className="text-sm text-yellow-500 flex items-center gap-1 mt-1 hover:underline">
-                    <Phone size={14} /> {trip.phone}
-                  </a>
-                </div>
-                <div className="text-right">
-                  <div className="bg-zinc-800 text-white px-2 py-1 rounded text-sm font-mono font-bold inline-flex items-center gap-1">
-                    <Clock size={14} className="text-yellow-500"/> {trip.time}
-                  </div>
-                  <div className="text-xs text-zinc-500 mt-1">{trip.date}</div>
-                </div>
-              </div>
-
-              <div className="space-y-3 mb-4">
-                <div className="flex gap-3 items-start">
-                  <Navigation className="text-zinc-500 mt-0.5 shrink-0" size={16} />
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-zinc-600 block">Recogida</span>
-                    <span className="text-zinc-300 text-sm leading-tight">{trip.origin}</span>
-                  </div>
-                </div>
-                <div className="flex gap-3 items-start">
-                  <MapPin className="text-yellow-600 mt-0.5 shrink-0" size={16} />
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-zinc-600 block">Destino</span>
-                    <span className="text-zinc-300 text-sm leading-tight">{trip.destination}</span>
-                  </div>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => handleAssignTrip(trip)}
-                className="w-full bg-white text-zinc-950 font-bold py-3 rounded-xl shadow-lg hover:bg-zinc-200 transition-all flex justify-center items-center gap-2 mt-2"
-              >
-                ASIGNARME ESTE VIAJE
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ==========================================
-// MÓDULO CRM (CLIENTES FRECUENTES)
-// ==========================================
-function CRMModule({ trips }) {
-  // Aggregate trips to find frequent clients
-  const clientStats = trips.reduce((acc, trip) => {
-    const key = trip.phone;
-    if (!acc[key]) {
-      acc[key] = {
-        name: trip.name,
-        phone: trip.phone,
-        totalTrips: 0,
-        lastTrip: trip.datetime,
-        type: trip.type
+      const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
       };
-    }
-    acc[key].totalTrips += 1;
-    if (trip.datetime > acc[key].lastTrip) {
-      acc[key].lastTrip = trip.datetime;
-      acc[key].name = trip.name; // Update to latest name used
-    }
-    return acc;
-  }, {});
 
-  // Convert to array and sort by number of trips (descending)
-  const sortedClients = Object.values(clientStats).sort((a, b) => b.totalTrips - a.totalTrips);
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!user) {
+          showToast("Conectando, intente en unos segundos...", "error");
+          return;
+        }
+        if (isSubmitting) return;
+        setIsSubmitting(true);
 
-  // Stats for the header
-  const totalCompleted = trips.filter(t => t.status === 'Asignado' || t.status === 'Completado').length;
+        try {
+          const tripDateTime = new Date(`${formData.date}T${formData.time}`).getTime();
+          
+          const newTrip = {
+            ...formData,
+            status: 'Pendiente',
+            driver: null,
+            datetime: tripDateTime,
+            createdAt: Date.now()
+          };
 
-  return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col items-center justify-center">
-          <span className="text-3xl font-light text-white">{sortedClients.length}</span>
-          <span className="text-xs text-zinc-500 uppercase tracking-wider font-bold mt-1">Clientes</span>
-        </div>
-        <div className="bg-zinc-900 border border-yellow-900/50 rounded-2xl p-4 flex flex-col items-center justify-center">
-          <span className="text-3xl font-light text-yellow-500">{totalCompleted}</span>
-          <span className="text-xs text-zinc-500 uppercase tracking-wider font-bold mt-1">Viajes Atendidos</span>
-        </div>
-      </div>
+          await addTrip(newTrip);
+          showToast("Viaje programado exitosamente. Un chofer se comunicará pronto.");
+          setFormData({ name: '', phone: '+598 ', date: '', time: '', origin: '', destination: '', type: 'Único' });
+        } catch (error) {
+          console.error("Error:", error);
+          showToast("Error al guardar el viaje.", "error");
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
 
-      <h2 className="text-xl font-light text-white mb-4 flex items-center gap-2">
-        <List className="text-yellow-500" /> Directorio de Clientes
-      </h2>
+      return (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="mb-6">
+            <h2 className="text-xl font-light text-white mb-1">Solicitar Traslado</h2>
+            <p className="text-sm text-zinc-400">Complete los datos para agendar su viaje.</p>
+          </div>
 
-      {sortedClients.length === 0 ? (
-        <div className="text-center py-8 text-zinc-500">No hay datos registrados aún.</div>
-      ) : (
-        <div className="space-y-3">
-          {sortedClients.map((client, index) => (
-            <div key={index} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-medium text-white">{client.name}</h3>
-                  {client.totalTrips >= 3 && (
-                    <span className="bg-yellow-500/20 text-yellow-500 text-[10px] uppercase font-bold px-2 py-0.5 rounded">VIP</span>
-                  )}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="bg-zinc-900/50 p-5 rounded-2xl border border-zinc-800 space-y-4">
+              
+              <div className="space-y-4 border-b border-zinc-800 pb-4">
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Nombre Completo</label>
+                  <div className="relative">
+                    <i className="fa-solid fa-user absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"></i>
+                    <input required type="text" name="name" value={formData.name} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all" placeholder="Ej. Juan Pérez" />
+                  </div>
                 </div>
-                <p className="text-sm text-zinc-400 font-mono mt-1">{client.phone}</p>
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">WhatsApp</label>
+                  <div className="relative">
+                    <i className="fa-solid fa-phone absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"></i>
+                    <input required type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all" placeholder="+598 99 123 456" />
+                  </div>
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-light text-white">{client.totalTrips}</div>
-                <div className="text-[10px] uppercase text-zinc-500 font-bold">Viajes</div>
+
+              <div className="flex gap-3 border-b border-zinc-800 pb-4">
+                <div className="flex-1">
+                  <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Fecha</label>
+                  <div className="relative">
+                    <i className="fa-solid fa-calendar absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"></i>
+                    <input required type="date" name="date" value={formData.date} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none block [&::-webkit-calendar-picker-indicator]:invert" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Hora</label>
+                  <div className="relative">
+                    <i className="fa-solid fa-clock absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"></i>
+                    <input required type="time" name="time" value={formData.time} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none block [&::-webkit-calendar-picker-indicator]:invert" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 border-b border-zinc-800 pb-4">
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Origen</label>
+                  <div className="relative">
+                    <i className="fa-solid fa-location-arrow absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"></i>
+                    <input required type="text" name="origin" value={formData.origin} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none" placeholder="Dirección de recogida" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">Destino</label>
+                  <div className="relative">
+                    <i className="fa-solid fa-map-pin absolute left-3 top-1/2 -translate-y-1/2 text-yellow-600"></i>
+                    <input required type="text" name="destination" value={formData.destination} onChange={handleChange} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-yellow-500 outline-none" placeholder="Dirección de destino" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-500 uppercase font-semibold mb-2 block">Tipo de Viaje</label>
+                <div className="flex gap-3">
+                  <label className={`flex-1 text-center py-3 rounded-xl border cursor-pointer transition-all ${formData.type === 'Único' ? 'bg-yellow-500/10 border-yellow-500 text-yellow-500' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}>
+                    <input type="radio" name="type" value="Único" checked={formData.type === 'Único'} onChange={handleChange} className="hidden" /> Ocasional
+                  </label>
+                  <label className={`flex-1 text-center py-3 rounded-xl border cursor-pointer transition-all ${formData.type === 'Frecuente' ? 'bg-yellow-500/10 border-yellow-500 text-yellow-500' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}>
+                    <input type="radio" name="type" value="Frecuente" checked={formData.type === 'Frecuente'} onChange={handleChange} className="hidden" /> Frecuente
+                  </label>
+                </div>
               </div>
             </div>
-          ))}
+
+            <button type="submit" disabled={isSubmitting} className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-zinc-950 font-bold py-4 rounded-xl shadow-lg shadow-yellow-500/20 transition-all flex justify-center items-center gap-2">
+              {isSubmitting ? (
+                <div className="w-5 h-5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin"></div>
+              ) : "PROGRAMAR VIAJE"}
+            </button>
+          </form>
         </div>
-      )}
-    </div>
-  );
-}
+      );
+    }
+
+    // ==========================================
+    // MÓDULO DESPACHO (CHOFERES - 7 Taxis)
+    // ==========================================
+    function DispatchModule({ trips, showToast, updateTrip }) {
+      // Estado inicial modificado para el selector de 7 móviles
+      const [driverName, setDriverName] = useState(() => localStorage.getItem('luxe_driver_name') || 'Móvil 1');
+      const [isEditingName, setIsEditingName] = useState(!localStorage.getItem('luxe_driver_name'));
+
+      const pendingTrips = trips
+        .filter(t => t.status === 'Pendiente')
+        .sort((a, b) => a.datetime - b.datetime);
+
+      const saveDriverName = () => {
+        if (driverName.trim().length > 0) {
+          localStorage.setItem('luxe_driver_name', driverName);
+          setIsEditingName(false);
+          showToast("Móvil guardado correctamente.");
+        } else {
+          showToast("Selecciona un móvil válido.", "error");
+        }
+      };
+
+      const handleAssignTrip = async (trip) => {
+        if (!driverName || isEditingName) {
+          showToast("Primero debes guardar tu número de móvil.", "error");
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+
+        try {
+          await updateTrip(trip.id, { 
+            status: 'Asignado', 
+            driver: driverName 
+          });
+
+          const cleanPhone = trip.phone.replace(/\D/g, ''); 
+          const message = `*LuxeFleet Service*\n\nHola ${trip.name}, su traslado ha sido programado con éxito para el ${trip.date} a las ${trip.time}.\n\n🚘 El vehículo asignado es el: *${driverName}*.\n\nEl chofer le contactará por esta vía al llegar.`;
+          const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+          
+          window.open(waLink, '_blank');
+          showToast("Viaje asignado. Abriendo WhatsApp...");
+        } catch (error) {
+          console.error("Error:", error);
+          showToast("Error al asignar el viaje.", "error");
+        }
+      };
+
+      return (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-zinc-900 border border-yellow-600/30 p-4 rounded-xl mb-6 shadow-lg shadow-yellow-900/5">
+            <div className="flex items-center gap-2 mb-2">
+              <i className="fa-solid fa-shield-halved text-yellow-500"></i>
+              <h3 className="text-white font-medium">Identificación de Móvil</h3>
+            </div>
+            {isEditingName ? (
+              <div className="flex gap-2">
+                {/* Menú desplegable para los 7 taxis */}
+                <select 
+                  value={driverName} 
+                  onChange={(e) => setDriverName(e.target.value)} 
+                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:border-yellow-500 outline-none cursor-pointer appearance-none"
+                >
+                  <option value="Móvil 1">Móvil 1</option>
+                  <option value="Móvil 2">Móvil 2</option>
+                  <option value="Móvil 3">Móvil 3</option>
+                  <option value="Móvil 4">Móvil 4</option>
+                  <option value="Móvil 5">Móvil 5</option>
+                  <option value="Móvil 6">Móvil 6</option>
+                  <option value="Móvil 7">Móvil 7</option>
+                </select>
+                <button onClick={saveDriverName} className="bg-yellow-500 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm hover:bg-yellow-400 transition-colors">Guardar</button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between bg-zinc-950 p-3 rounded-lg border border-zinc-800">
+                <span className="text-zinc-300 text-sm">Operando como: <strong className="text-white">{driverName}</strong></span>
+                <button onClick={() => setIsEditingName(true)} className="text-yellow-500 text-xs font-semibold uppercase hover:text-yellow-400">Cambiar</button>
+              </div>
+            )}
+          </div>
+
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-light text-white">Viajes Pendientes</h2>
+            <span className="bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold border border-yellow-500/30">{pendingTrips.length} en espera</span>
+          </div>
+
+          {pendingTrips.length === 0 ? (
+            <div className="text-center py-12 bg-zinc-900/30 rounded-2xl border border-zinc-800 border-dashed">
+              <i className="fa-solid fa-car text-zinc-700 text-4xl mb-3"></i>
+              <p className="text-zinc-500 font-medium">No hay viajes pendientes.</p>
+              <p className="text-zinc-600 text-sm mt-1">La flota está al día.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {pendingTrips.map(trip => (
+                <div key={trip.id} className="bg-zinc-900 rounded-2xl border-l-4 border-l-yellow-500 border border-zinc-800 p-4 shadow-xl">
+                  <div className="flex justify-between items-start mb-3 border-b border-zinc-800/50 pb-3">
+                    <div>
+                      <h3 className="font-semibold text-lg text-white">{trip.name}</h3>
+                      <a href={`tel:${trip.phone}`} className="text-sm text-yellow-500 flex items-center gap-1 mt-1 hover:underline">
+                        <i className="fa-solid fa-phone text-xs"></i> {trip.phone}
+                      </a>
+                    </div>
+                    <div className="text-right">
+                      <div className="bg-zinc-800 text-white px-2 py-1 rounded text-sm font-mono font-bold inline-flex items-center gap-1">
+                        <i className="fa-solid fa-clock text-yellow-500"></i> {trip.time}
+                      </div>
+                      <div className="text-xs text-zinc-500 mt-1">{trip.date}</div>
+                    </div>
+                  </div>
+                  <div className="space-y-3 mb-4">
+                    <div className="flex gap-3 items-start">
+                      <i className="fa-solid fa-location-arrow text-zinc-500 mt-1"></i>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-zinc-600 block">Recogida</span>
+                        <span className="text-zinc-300 text-sm leading-tight">{trip.origin}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <i className="fa-solid fa-map-pin text-yellow-600 mt-1"></i>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-zinc-600 block">Destino</span>
+                        <span className="text-zinc-300 text-sm leading-tight">{trip.destination}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => handleAssignTrip(trip)} className="w-full bg-white text-zinc-950 font-bold py-3 rounded-xl shadow-lg hover:bg-zinc-200 transition-all flex justify-center items-center gap-2 mt-2">
+                    ASIGNARME ESTE VIAJE
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MÓDULO CRM (CLIENTES FRECUENTES)
+    // ==========================================
+    function CRMModule({ trips }) {
+      const clientStats = trips.reduce((acc, trip) => {
+        const key = trip.phone;
+        if (!acc[key]) {
+          acc[key] = { name: trip.name, phone: trip.phone, totalTrips: 0, lastTrip: trip.datetime };
+        }
+        acc[key].totalTrips += 1;
+        if (trip.datetime > acc[key].lastTrip) {
+          acc[key].lastTrip = trip.datetime;
+          acc[key].name = trip.name;
+        }
+        return acc;
+      }, {});
+
+      const sortedClients = Object.values(clientStats).sort((a, b) => b.totalTrips - a.totalTrips);
+      const totalCompleted = trips.filter(t => t.status === 'Asignado' || t.status === 'Completado').length;
+
+      return (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col items-center justify-center">
+              <span className="text-3xl font-light text-white">{sortedClients.length}</span>
+              <span className="text-xs text-zinc-500 uppercase tracking-wider font-bold mt-1">Clientes</span>
+            </div>
+            <div className="bg-zinc-900 border border-yellow-900/50 rounded-2xl p-4 flex flex-col items-center justify-center">
+              <span className="text-3xl font-light text-yellow-500">{totalCompleted}</span>
+              <span className="text-xs text-zinc-500 uppercase tracking-wider font-bold mt-1">Atendidos</span>
+            </div>
+          </div>
+
+          <h2 className="text-xl font-light text-white mb-4 flex items-center gap-2">
+            <i className="fa-solid fa-list text-yellow-500"></i> Directorio
+          </h2>
+
+          {sortedClients.length === 0 ? (
+            <div className="text-center py-8 text-zinc-500">No hay datos registrados.</div>
+          ) : (
+            <div className="space-y-3">
+              {sortedClients.map((client, index) => (
+                <div key={index} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium text-white">{client.name}</h3>
+                      {client.totalTrips >= 3 && <span className="bg-yellow-500/20 text-yellow-500 text-[10px] uppercase font-bold px-2 py-0.5 rounded">VIP</span>}
+                    </div>
+                    <p className="text-sm text-zinc-400 font-mono mt-1">{client.phone}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-light text-white">{client.totalTrips}</div>
+                    <div className="text-[10px] uppercase text-zinc-500 font-bold">Viajes</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Renderizar la app en el DOM
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
