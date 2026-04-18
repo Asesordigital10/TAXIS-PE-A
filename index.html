@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -205,7 +205,7 @@
             
             <nav className="max-w-md mx-auto flex">
               <button onClick={() => setActiveTab('cliente')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'cliente' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Reservar</button>
-              <button onClick={() => setActiveTab('despacho')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'despacho' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Despacho</button>
+              <button onClick={() => setActiveTab('servicios')} className={`flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-colors ${activeTab === 'servicios' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-800/50' : 'text-zinc-500 hover:text-zinc-300'}`}>Servicios</button>
               
               {loggedUser?.role === 'admin' && (
                 <>
@@ -219,11 +219,11 @@
           <main className="max-w-md mx-auto p-4 pb-24">
             {activeTab === 'cliente' && <ClientModule showToast={showToast} user={user} addTrip={addTrip} />}
             
-            {activeTab === 'despacho' && !loggedUser && (
+            {activeTab === 'servicios' && !loggedUser && (
               <PinLogin onLogin={handleLogin} showToast={showToast} driverSettings={driverSettings} />
             )}
 
-            {activeTab === 'despacho' && loggedUser && (
+            {activeTab === 'servicios' && loggedUser && (
               <DispatchModule trips={trips} showToast={showToast} updateTrip={updateTrip} loggedUser={loggedUser} onLogout={handleLogout} />
             )}
 
@@ -596,7 +596,6 @@
                       <div className="text-2xl font-light text-white">{client.totalTrips}</div>
                       <div className="text-[10px] uppercase text-zinc-500 font-bold">Viajes</div>
                     </div>
-                    {/* Botón de Contacto Rápido por WhatsApp */}
                     <a 
                       href={`https://wa.me/${client.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${client.name}, nos comunicamos de la administración de LuxeFleet.`)}`}
                       target="_blank"
@@ -693,5 +692,7 @@
   </script>
 </body>
 </html>
+
+
 
 
